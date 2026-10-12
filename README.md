@@ -2,7 +2,23 @@
 
 Frontend (Next.js), backend (FastAPI), and PostgreSQL — runnable with Docker.
 
-## Quick start (Docker)
+## Quick start (Linux deploy server)
+
+One script installs Docker (if needed), builds images (Python + Next.js packages), and runs frontend + backend + database:
+
+```bash
+chmod +x start-all.sh
+./start-all.sh
+```
+
+Stop / reset:
+
+```bash
+./start-all.sh stop
+./start-all.sh reset
+```
+
+## Quick start (Docker manual)
 
 ```bash
 docker compose up -d --build
