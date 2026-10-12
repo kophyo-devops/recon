@@ -8,12 +8,15 @@ import "./globals.css";
 const body = Public_Sans({
   variable: "--font-body",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
 });
 
 const mono = IBM_Plex_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
-  weight: ["400", "500"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -30,7 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <body
-        className="h-dvh overflow-hidden font-sans antialiased"
+        className="h-dvh overflow-hidden font-sans"
         suppressHydrationWarning
       >
         <ClientProviders>{children}</ClientProviders>

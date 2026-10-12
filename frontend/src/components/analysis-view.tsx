@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertDialog, Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
 import { Download, FileSpreadsheet, FileText } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
@@ -11,6 +11,15 @@ import {
   type AnalysisDateRange,
 } from "@/components/analysis-date-range-picker";
 import { AnalyticsCharts } from "@/components/analytics-charts";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useAppFeedback } from "@/components/providers/app-feedback";
 import {
   DifferencesPanel,
@@ -18,6 +27,7 @@ import {
 } from "@/components/results-panel";
 import { SummaryStats } from "@/components/summary-stats";
 import type { ReconciliationState } from "@/hooks/use-reconciliation";
+import type { MismatchCategory } from "@/lib/types";
 import {
   exportReconciliationPdf,
   exportReconciliationReport,
@@ -27,9 +37,14 @@ import {
 type AnalysisViewProps = {
   state: ReconciliationState;
   onGoInventory: () => void;
+  initialCategory?: MismatchCategory | null;
 };
 
-export function AnalysisView({ state, onGoInventory }: AnalysisViewProps) {
+export function AnalysisView({
+  state,
+  onGoInventory,
+  initialCategory = null,
+}: AnalysisViewProps) {
   const feedback = useAppFeedback();
   const reportRef = useRef<HTMLDivElement>(null);
   const [exportOpen, setExportOpen] = useState(false);
@@ -54,13 +69,13 @@ export function AnalysisView({ state, onGoInventory }: AnalysisViewProps) {
     return periodKeysToCalendarRange(analysisPeriod, analysisPeriodEnd);
   }, [analysisPeriod, analysisPeriodEnd]);
 
-  async function handleRangeChange(next: AnalysisDateRange) {
+  function handleRangeChange(next: AnalysisDateRange) {
     const { from, to } = calendarRangeToPeriodKeys(next);
-    await changeAnalysisPeriodRange(from, to);
     feedback.info(
       "Analysis range",
       from === to ? from : `${from} → ${to}`,
     );
+    void changeAnalysisPeriodRange(from, to);
   }
 
   async function handleRunAnalysis() {
@@ -228,7 +243,11 @@ export function AnalysisView({ state, onGoInventory }: AnalysisViewProps) {
               <h2 className="text-[14px] font-semibold text-[var(--ink)]">
                 Differences
               </h2>
-              <DifferencesPanel result={result} />
+              <DifferencesPanel
+                key={initialCategory ?? "all"}
+                result={result}
+                initialFilter={initialCategory ?? "all"}
+              />
             </section>
           </>
         ) : (
@@ -238,66 +257,51 @@ export function AnalysisView({ state, onGoInventory }: AnalysisViewProps) {
         )}
       </div>
 
-      <AlertDialog.Backdrop
-        isOpen={exportOpen}
-        onOpenChange={setExportOpen}
-      >
-        <AlertDialog.Container>
-          <AlertDialog.Dialog className="sm:max-w-[440px]">
-            <AlertDialog.CloseTrigger />
-            <AlertDialog.Header>
-              <AlertDialog.Icon status="accent" />
-              <AlertDialog.Heading>Export report</AlertDialog.Heading>
-            </AlertDialog.Header>
-            <AlertDialog.Body>
-              <p className="text-[14px] leading-relaxed text-[var(--muted)]">
-                Choose a format for{" "}
-                <span className="font-medium text-[var(--ink)]">
-                  {result?.periodLabel ?? "this analysis"}
-                </span>
-                .
-              </p>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  className="flex flex-col items-start gap-1 rounded-[10px] border border-[var(--line)] bg-white px-4 py-3 text-left transition-colors hover:border-[var(--navy)] hover:bg-[#f8fafc]"
-                  onClick={() => void handleExport("pdf")}
-                >
-                  <span className="flex items-center gap-2 text-[13px] font-semibold text-[var(--ink)]">
-                    <FileText className="size-4 text-[var(--navy)]" />
-                    PDF
-                  </span>
-                  <span className="text-[12px] text-[var(--muted)]">
-                    Layout like the Analysis page
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="flex flex-col items-start gap-1 rounded-[10px] border border-[var(--line)] bg-white px-4 py-3 text-left transition-colors hover:border-[var(--navy)] hover:bg-[#f8fafc]"
-                  onClick={() => void handleExport("excel")}
-                >
-                  <span className="flex items-center gap-2 text-[13px] font-semibold text-[var(--ink)]">
-                    <FileSpreadsheet className="size-4 text-[var(--navy)]" />
-                    Excel
-                  </span>
-                  <span className="text-[12px] text-[var(--muted)]">
-                    Overview, Totals, Differences sheets
-                  </span>
-                </button>
-              </div>
-            </AlertDialog.Body>
-            <AlertDialog.Footer>
-              <Button
-                slot="close"
-                variant="tertiary"
-                onPress={() => setExportOpen(false)}
-              >
-                Cancel
-              </Button>
-            </AlertDialog.Footer>
-          </AlertDialog.Dialog>
-        </AlertDialog.Container>
-      </AlertDialog.Backdrop>
+      <AlertDialog open={exportOpen} onOpenChange={setExportOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Export report</AlertDialogTitle>
+            <AlertDialogDescription>
+              Choose a format for{" "}
+              <span className="font-medium text-foreground">
+                {result?.periodLabel ?? "this analysis"}
+              </span>
+              .
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              className="flex flex-col items-start gap-1 rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-left transition-colors hover:border-[var(--navy)] hover:bg-[#f8fafc]"
+              onClick={() => void handleExport("pdf")}
+            >
+              <span className="flex items-center gap-2 text-[13px] font-semibold text-[var(--ink)]">
+                <FileText className="size-4 text-[var(--navy)]" />
+                PDF
+              </span>
+              <span className="text-[12px] text-[var(--muted)]">
+                Layout like the Analysis page
+              </span>
+            </button>
+            <button
+              type="button"
+              className="flex flex-col items-start gap-1 rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-left transition-colors hover:border-[var(--navy)] hover:bg-[#f8fafc]"
+              onClick={() => void handleExport("excel")}
+            >
+              <span className="flex items-center gap-2 text-[13px] font-semibold text-[var(--ink)]">
+                <FileSpreadsheet className="size-4 text-[var(--navy)]" />
+                Excel
+              </span>
+              <span className="text-[12px] text-[var(--muted)]">
+                Overview, Totals, Differences sheets
+              </span>
+            </button>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

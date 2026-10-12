@@ -48,7 +48,7 @@ function MismatchTable({
           {selection.selectedCount} selected
         </p>
       ) : null}
-      <div className="app-table-wrap rounded-[6px] border border-[var(--line)]">
+      <div className="app-table-wrap rounded-xl border border-[var(--line)]">
         <table className="app-table min-w-[900px]">
           <thead>
             <tr>
@@ -126,7 +126,7 @@ export function TotalsPanel({ result }: ResultsPanelProps) {
           {selection.selectedCount} selected
         </p>
       ) : null}
-      <div className="app-table-wrap overflow-hidden rounded-[10px] border border-[var(--line)] bg-white">
+      <div className="app-table-wrap overflow-hidden rounded-xl border border-[var(--line)] bg-white">
         <table className="app-table min-w-[680px] bg-white [&_th]:bg-white">
           <thead>
             <tr>
@@ -188,8 +188,11 @@ export function TotalsPanel({ result }: ResultsPanelProps) {
   );
 }
 
-export function DifferencesPanel({ result }: ResultsPanelProps) {
-  const [filter, setFilter] = useState<CategoryFilter>("all");
+export function DifferencesPanel({
+  result,
+  initialFilter = "all",
+}: ResultsPanelProps & { initialFilter?: CategoryFilter }) {
+  const [filter, setFilter] = useState<CategoryFilter>(initialFilter);
   const all = result.mismatches;
 
   function count(id: CategoryFilter) {

@@ -65,7 +65,7 @@ function SideDropZone({
   return (
     <label
       htmlFor={inputId}
-      className={`flex min-h-[140px] cursor-pointer flex-col items-center justify-center rounded-[8px] border-[1.5px] border-dashed border-[var(--field-border)] bg-[#f7f9fb] px-4 py-5 text-center transition ${
+      className={`flex min-h-[140px] cursor-pointer flex-col items-center justify-center rounded-xl border-[1.5px] border-dashed border-[var(--field-border)] bg-[#f7f9fb] px-4 py-5 text-center transition ${
         dragging ? "border-[var(--navy)] bg-[#eef3f8]" : ""
       } ${
         disabled
@@ -197,7 +197,7 @@ export function FileDropzone({ disabled, onFiles, queue }: FileDropzoneProps) {
           {queue.map((item) => (
             <li
               key={item.id}
-              className="flex flex-col gap-1 rounded-[6px] border border-[var(--line-soft)] bg-[#f8fafc] px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+              className="flex flex-col gap-1 rounded-lg border border-[var(--line-soft)] bg-[#f8fafc] px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="min-w-0">
                 <p className="truncate font-[family-name:var(--font-mono)] text-[12px] text-[var(--ink)]">

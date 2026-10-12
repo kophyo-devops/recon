@@ -37,7 +37,7 @@ export function SummaryStats({ result }: SummaryStatsProps) {
       {items.map((item) => (
         <div
           key={item.label}
-          className="rounded-[10px] border border-[#c5d0db] bg-white px-4 py-3"
+          className="rounded-xl border border-[#c5d0db] bg-white px-4 py-3"
         >
           <dt className="text-[12px] text-[var(--muted)]">{item.label}</dt>
           <dd className="mt-1 font-[family-name:var(--font-mono)] text-[13px] text-[var(--ink)]">

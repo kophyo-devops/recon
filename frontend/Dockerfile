@@ -16,7 +16,9 @@ ENV BACKEND_ORIGIN=$BACKEND_ORIGIN
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_PUBLIC_API_URL=
 
-RUN npm run build
+# Next 16 defaults production builds to Turbopack. The Tailwind CSS rule
+# then swallows next/font stylesheets, so Google fonts fail to resolve.
+RUN npx next build --webpack
 
 FROM node:22-alpine AS runner
 WORKDIR /app

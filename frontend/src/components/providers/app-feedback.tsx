@@ -1,6 +1,10 @@
 "use client";
 
-import { AlertDialog, Button, Toast, toast } from "@heroui/react";
+import {
+  LogOut as LogOutIcon,
+  Play as PlayIcon,
+  Trash2 as Trash2Icon,
+} from "lucide-react";
 import {
   createContext,
   useCallback,
@@ -10,6 +14,19 @@ import {
   useState,
   type ReactNode,
 } from "react";
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Toaster, toast } from "@/components/ui/sonner";
 
 type ConfirmTone = "danger" | "warning" | "accent" | "success";
 
@@ -78,19 +95,10 @@ export function AppFeedbackProvider({ children }: { children: ReactNode }) {
       warning: (title, description) =>
         toast.warning(title, description ? { description } : undefined),
       error: (title, description) =>
-        toast.danger(title, description ? { description } : undefined),
+        toast.error(title, description ? { description } : undefined),
     }),
     [confirm],
   );
-
-  const iconStatus =
-    confirmState.tone === "danger"
-      ? "danger"
-      : confirmState.tone === "warning"
-        ? "warning"
-        : confirmState.tone === "success"
-          ? "success"
-          : "accent";
 
   return (
     <AppFeedbackContext.Provider value={value}>
@@ -98,46 +106,69 @@ export function AppFeedbackProvider({ children }: { children: ReactNode }) {
         {children}
       </div>
 
-      <div aria-live="polite" aria-relevant="additions" className="contents">
-        <Toast.Provider placement="top end" />
-      </div>
+      <Toaster position="top-center" closeButton />
 
-      <AlertDialog.Backdrop
-        isOpen={confirmState.open}
+      <AlertDialog
+        open={confirmState.open}
         onOpenChange={(open) => {
           if (!open) closeConfirm(false);
         }}
       >
-        <AlertDialog.Container>
-          <AlertDialog.Dialog className="sm:max-w-[420px]">
-            <AlertDialog.CloseTrigger />
-            <AlertDialog.Header>
-              <AlertDialog.Icon status={iconStatus} />
-              <AlertDialog.Heading>{confirmState.title}</AlertDialog.Heading>
-            </AlertDialog.Header>
-            <AlertDialog.Body>
-              <p className="text-[14px] leading-relaxed text-[var(--muted)]">
-                {confirmState.message}
-              </p>
-            </AlertDialog.Body>
-            <AlertDialog.Footer>
-              <Button
-                slot="close"
-                variant="tertiary"
-                onPress={() => closeConfirm(false)}
-              >
-                {confirmState.cancelLabel}
-              </Button>
-              <Button
-                variant={confirmState.tone === "danger" ? "danger" : "primary"}
-                onPress={() => closeConfirm(true)}
-              >
-                {confirmState.confirmLabel}
-              </Button>
-            </AlertDialog.Footer>
-          </AlertDialog.Dialog>
-        </AlertDialog.Container>
-      </AlertDialog.Backdrop>
+        <AlertDialogContent
+          size="sm"
+          className={
+            confirmState.tone === "danger"
+              ? "max-w-[22rem] gap-5 rounded-xl border-[#e7e5e4] bg-white p-5 shadow-xl"
+              : "max-w-[22rem] gap-4 rounded-xl border-[#e7e5e4] bg-white p-5 text-[#111827] shadow-lg"
+          }
+        >
+          <AlertDialogHeader>
+            {confirmState.tone === "danger" ? (
+              <AlertDialogMedia className="mb-1 size-11 rounded-lg bg-[#fde8e8] text-[#e11d48]">
+                <Trash2Icon className="size-5" />
+              </AlertDialogMedia>
+            ) : null}
+            {confirmState.tone === "warning" ? (
+              <AlertDialogMedia className="mb-1 size-10 rounded-lg bg-[#f4f4f5] text-[#111827]">
+                <LogOutIcon className="size-4" />
+              </AlertDialogMedia>
+            ) : null}
+            {confirmState.tone === "accent" ? (
+              <AlertDialogMedia className="mb-1 size-10 rounded-lg bg-[#eef2f6] text-[#1a2b4a]">
+                <PlayIcon className="size-4" />
+              </AlertDialogMedia>
+            ) : null}
+            <AlertDialogTitle className="text-base font-semibold text-[#111827]">
+              {confirmState.title}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-balance text-[#6b7280]">
+              {confirmState.message}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              variant="outline"
+              className="h-9 rounded-lg border-[#e5e7eb] bg-white text-[#111827] shadow-none hover:border-[#d1d5db] hover:bg-[#f3f4f6] hover:text-[#111827]"
+              onClick={() => closeConfirm(false)}
+            >
+              {confirmState.cancelLabel}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant={confirmState.tone === "danger" ? "destructive" : "default"}
+              className={
+                confirmState.tone === "danger"
+                  ? "h-9 rounded-lg border-0 bg-[#fde8e8] text-[#e11d48] shadow-none hover:bg-[#fbd5d5]"
+                  : confirmState.tone === "warning"
+                    ? "h-9 rounded-lg border-0 bg-black text-white shadow-none hover:bg-black/90"
+                    : "h-9 rounded-lg border-0 bg-[#1a2b4a] text-white shadow-none hover:bg-[#1a2b4a]/90"
+              }
+              onClick={() => closeConfirm(true)}
+            >
+              {confirmState.confirmLabel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppFeedbackContext.Provider>
   );
 }

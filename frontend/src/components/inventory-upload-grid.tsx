@@ -2,7 +2,7 @@
 
 import { Download, FileText, Inbox, Trash2 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useAppFeedback } from "@/components/providers/app-feedback";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -16,6 +16,8 @@ import {
   deleteUploadBatch,
   downloadUploadBatch,
   fetchUploadBatches,
+  isAbortError,
+  type UploadBatchesPage,
   type UploadBatchGridItem,
 } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
@@ -25,10 +27,23 @@ type InventoryUploadGridProps = {
   apiOnline: boolean | null;
   /** When null / omitted, load CEIR + PayPlus together. */
   lockedSide?: ReportSide | null;
+  inventoryVersion?: number;
   refreshToken?: number;
   onChanged?: () => void;
   onUploadClick?: () => void;
 };
+
+const batchPageCache = new Map<string, UploadBatchesPage>();
+
+function rememberBatchPage(key: string, page: UploadBatchesPage) {
+  batchPageCache.delete(key);
+  batchPageCache.set(key, page);
+  while (batchPageCache.size > 12) {
+    const oldest = batchPageCache.keys().next().value;
+    if (oldest == null) break;
+    batchPageCache.delete(oldest);
+  }
+}
 
 const PAGE_SIZE = 10;
 type SortKey = "uploadedAt" | "period";
@@ -88,7 +103,7 @@ function SkeletonRows() {
       {Array.from({ length: 5 }).map((_, index) => (
         <div
           key={index}
-          className="h-10 animate-pulse rounded-[6px] bg-[#e8eef4]"
+          className="h-10 animate-pulse rounded-md bg-[#e8eef4]"
         />
       ))}
     </div>
@@ -98,6 +113,7 @@ function SkeletonRows() {
 export function InventoryUploadGrid({
   apiOnline,
   lockedSide = null,
+  inventoryVersion = 0,
   refreshToken = 0,
   onChanged,
   onUploadClick,
@@ -147,7 +163,23 @@ export function InventoryUploadGrid({
     });
   }, [debouncedQuery, qFromUrl, replaceParams]);
 
-  const load = useCallback(async () => {
+  const cacheKey = [
+    inventoryVersion,
+    lockedSide ?? "all",
+    page,
+    qFromUrl,
+    sort,
+    sortDir,
+  ].join("|");
+  const refreshSeen = useRef(refreshToken);
+
+  useEffect(() => {
+    if (refreshSeen.current === refreshToken) return;
+    refreshSeen.current = refreshToken;
+    batchPageCache.clear();
+  }, [refreshToken]);
+
+  const load = useCallback(async (signal?: AbortSignal) => {
     if (apiOnline === false) {
       setItems([]);
       setTotal(0);
@@ -156,32 +188,49 @@ export function InventoryUploadGrid({
       return;
     }
 
+    const cached = batchPageCache.get(cacheKey);
+    if (cached) {
+      setItems(cached.items);
+      setTotal(cached.total);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchUploadBatches({
-        page,
-        pageSize: PAGE_SIZE,
-        q: qFromUrl,
-        ...(lockedSide ? { side: lockedSide } : {}),
-        sort,
-        sortDir,
-      });
+      const data = await fetchUploadBatches(
+        {
+          page,
+          pageSize: PAGE_SIZE,
+          q: qFromUrl,
+          ...(lockedSide ? { side: lockedSide } : {}),
+          sort,
+          sortDir,
+        },
+        signal,
+      );
+      if (signal?.aborted) return;
+      rememberBatchPage(cacheKey, data);
       setItems(data.items);
       setTotal(data.total);
     } catch (err) {
+      if (signal?.aborted || isAbortError(err)) return;
       setItems([]);
       setTotal(0);
       setError(
         err instanceof Error ? err.message : "Could not load uploaded files",
       );
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  }, [apiOnline, lockedSide, page, qFromUrl, sort, sortDir]);
+  }, [apiOnline, cacheKey, lockedSide, page, qFromUrl, sort, sortDir]);
 
   useEffect(() => {
-    void load();
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
   }, [load, refreshToken]);
 
   const searchActive = Boolean(qFromUrl.trim());
@@ -232,6 +281,7 @@ export function InventoryUploadGrid({
       await deleteUploadBatch(row.batchId);
       feedback.success("Upload deleted", row.fileName);
       selection.clear();
+      batchPageCache.clear();
       onChanged?.();
       await load();
     } catch (err) {
@@ -263,6 +313,7 @@ export function InventoryUploadGrid({
         `${rows.length} file${rows.length === 1 ? "" : "s"} removed.`,
       );
       selection.clear();
+      batchPageCache.clear();
       onChanged?.();
       await load();
     } catch (err) {
@@ -290,7 +341,7 @@ export function InventoryUploadGrid({
       <div className="flex items-center gap-1">
         <button
           type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-[6px] text-[var(--navy)] hover:bg-[#e8eef4] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--field-focus)]"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--navy)] hover:bg-[#e8eef4] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--field-focus)]"
           onClick={() => void handleDownload(row)}
           aria-label={`Download ${row.fileName}`}
           title="Download"
@@ -299,7 +350,7 @@ export function InventoryUploadGrid({
         </button>
         <button
           type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-[6px] text-[var(--signal)] hover:bg-[var(--signal)]/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--field-focus)]"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--signal)] hover:bg-[var(--signal)]/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--field-focus)]"
           onClick={() => void handleDelete(row)}
           aria-label={`Delete ${row.fileName}`}
           title="Delete"

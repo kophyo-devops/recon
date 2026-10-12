@@ -29,7 +29,7 @@ export function SegmentedControl<T extends string>({
         {label}
       </p>
       <div
-        className="inline-flex h-[34px] overflow-hidden rounded-[6px] border-[1.5px] border-[var(--field-border)] bg-white"
+        className="inline-flex h-[34px] overflow-hidden rounded-md border-[1.5px] border-[var(--field-border)] bg-white"
         role="group"
         aria-labelledby={`${id}-label`}
       >

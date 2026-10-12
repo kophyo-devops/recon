@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { AnalysisView } from "@/components/analysis-view";
 import { DashboardView } from "@/components/dashboard-view";
@@ -13,14 +14,55 @@ type ReconAppProps = {
   onLogout: () => void;
 };
 
+type PortalDirection = "forward" | "back";
+
+const SECTION_ORDER: PortalSection[] = ["dashboard", "inventory", "analysis"];
+
+function directionBetween(from: PortalSection, to: PortalSection): PortalDirection {
+  return SECTION_ORDER.indexOf(to) >= SECTION_ORDER.indexOf(from) ? "forward" : "back";
+}
+
 export function ReconApp({ username, onLogout }: ReconAppProps) {
   const state = useReconciliation();
   const [section, setSection] = useState<PortalSection>("dashboard");
+  const [enterDir, setEnterDir] = useState<PortalDirection | null>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const sectionRef = useRef(section);
+  sectionRef.current = section;
 
   const availablePeriods = useMemo(
     () => state.analysisPeriodOptions.map((option) => option.value),
     [state.analysisPeriodOptions],
   );
+
+  const changeSection = useCallback((next: PortalSection) => {
+    const current = sectionRef.current;
+    if (next === current) return;
+
+    const dir = directionBetween(current, next);
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const apply = () => {
+      setSection(next);
+      mainRef.current?.scrollTo({ top: 0 });
+    };
+
+    const start = document.startViewTransition?.bind(document);
+    if (reduce || !start) {
+      setEnterDir(reduce ? null : dir);
+      apply();
+      return;
+    }
+
+    document.documentElement.dataset.portalDir = dir;
+    setEnterDir(null);
+    try {
+      start(() => {
+        flushSync(apply);
+      });
+    } catch {
+      apply();
+    }
+  }, []);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--canvas)]">
@@ -47,31 +89,39 @@ export function ReconApp({ username, onLogout }: ReconAppProps) {
               </button>
             </div>
           </div>
-          <PortalNav active={section} onChange={setSection} />
+          <PortalNav active={section} onChange={changeSection} />
         </div>
       </header>
 
-      <main className="app-scroll mx-auto w-full max-w-[1280px] min-h-0 flex-1 px-4 py-3 sm:px-5 sm:py-4">
-        {section === "dashboard" ? (
-          <DashboardView
-            status={state.status}
-            fileCounts={state.inventoryCounts}
-            availablePeriods={availablePeriods}
-            inventoryVersion={state.inventoryVersion}
-            analysisResult={state.result}
-            onGoInventory={() => setSection("inventory")}
-            onGoAnalysis={() => setSection("analysis")}
-          />
-        ) : null}
+      <main
+        ref={mainRef}
+        className="app-scroll mx-auto w-full max-w-[1280px] min-h-0 flex-1 px-4 py-3 sm:px-5 sm:py-4"
+      >
+        <div
+          className={enterDir ? "portal-stage portal-stage-enter" : "portal-stage"}
+          data-dir={enterDir ?? undefined}
+        >
+          {section === "dashboard" ? (
+            <DashboardView
+              status={state.status}
+              fileCounts={state.inventoryCounts}
+              availablePeriods={availablePeriods}
+              inventoryVersion={state.inventoryVersion}
+              analysisResult={state.result}
+              onGoInventory={() => changeSection("inventory")}
+              onGoAnalysis={() => changeSection("analysis")}
+            />
+          ) : null}
 
-        {section === "inventory" ? <InventoryView state={state} /> : null}
+          {section === "inventory" ? <InventoryView state={state} /> : null}
 
-        {section === "analysis" ? (
-          <AnalysisView
-            state={state}
-            onGoInventory={() => setSection("inventory")}
-          />
-        ) : null}
+          {section === "analysis" ? (
+            <AnalysisView
+              state={state}
+              onGoInventory={() => changeSection("inventory")}
+            />
+          ) : null}
+        </div>
       </main>
     </div>
   );

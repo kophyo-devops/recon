@@ -9,12 +9,17 @@ import {
   type AnalysisDateRange,
 } from "@/components/analysis-date-range-picker";
 import {
+  categoryFigures,
   DashboardAnalytics,
   type PeriodSeriesPoint,
 } from "@/components/dashboard-charts";
 import type { ReconciliationState } from "@/hooks/use-reconciliation";
-import { fetchLatestReconciliation, fetchUploadSummary } from "@/lib/api";
-import { categoryLabels } from "@/lib/mock-reconciliation";
+import {
+  fetchDashboardSeries,
+  isAbortError,
+  type DashboardMonth,
+} from "@/lib/api";
+import { formatMmk } from "@/lib/format";
 import { formatPeriodLabel } from "@/lib/period-from-file";
 import type { MismatchCategory, ReconciliationResult } from "@/lib/types";
 
@@ -43,27 +48,6 @@ const MONTH_NAME_TO_NUM: Record<string, number> = {
   december: 12,
 };
 
-function monthsInRange(from: string, to: string): string[] {
-  const start = from <= to ? from : to;
-  const end = from <= to ? to : from;
-  const [sy, sm] = start.split("-").map(Number);
-  const [ey, em] = end.split("-").map(Number);
-  if (!sy || !sm || !ey || !em) return [];
-  const out: string[] = [];
-  let y = sy;
-  let m = sm;
-  while (y < ey || (y === ey && m <= em)) {
-    out.push(`${y}-${String(m).padStart(2, "0")}`);
-    m += 1;
-    if (m > 12) {
-      m = 1;
-      y += 1;
-    }
-    if (out.length > 48) break;
-  }
-  return out;
-}
-
 function parseMonthLabel(text: string): string | null {
   const match = text.trim().match(/^([A-Za-z]+)\s+(20\d{2})$/);
   if (!match) return null;
@@ -86,30 +70,48 @@ function periodKeysFromLabel(label: string): { from: string; to: string } | null
   return { from, to };
 }
 
-function mapApiResult(item: {
-  periodLabel: string;
-  matchedCount: number;
-  mismatchCount: number;
-  irdPaid: number;
-  ceirPaid: number;
-  adjustedIrdSum: number;
-  adjustedCeirSum: number;
-  sumsEqual: boolean;
-  summary: ReconciliationResult["summary"];
-  mismatches: ReconciliationResult["mismatches"];
-}): ReconciliationResult {
+const dashboardSeriesCache = new Map<string, PeriodSeriesPoint[]>();
+
+function rememberDashboardSeries(key: string, points: PeriodSeriesPoint[]) {
+  dashboardSeriesCache.delete(key);
+  dashboardSeriesCache.set(key, points);
+  while (dashboardSeriesCache.size > 8) {
+    const oldest = dashboardSeriesCache.keys().next().value;
+    if (oldest == null) break;
+    dashboardSeriesCache.delete(oldest);
+  }
+}
+
+function monthToPoint(month: DashboardMonth): PeriodSeriesPoint {
+  const hasRun = month.matchedCount != null;
   return {
-    periodLabel: item.periodLabel,
-    matchedCount: item.matchedCount,
-    mismatchCount: item.mismatchCount,
-    irdPaid: item.irdPaid,
-    ceirPaid: item.ceirPaid,
-    adjustedIrdSum: item.adjustedIrdSum,
-    adjustedCeirSum: item.adjustedCeirSum,
-    sumsEqual: item.sumsEqual,
-    summary: item.summary,
-    mismatches: item.mismatches,
+    period: month.period,
+    inventory: {
+      ceirRows: month.ceirRows,
+      payplusRows: month.payplusRows,
+      ceirFiles: month.ceirFiles,
+      payplusFiles: month.payplusFiles,
+    },
+    categories: month.categories,
+    result: hasRun
+      ? {
+          periodLabel: month.period,
+          matchedCount: month.matchedCount ?? 0,
+          mismatchCount: month.mismatchCount ?? 0,
+          irdPaid: month.irdPaid ?? 0,
+          ceirPaid: month.ceirPaid ?? 0,
+          adjustedIrdSum: month.adjustedIrdSum ?? 0,
+          adjustedCeirSum: month.adjustedCeirSum ?? 0,
+          sumsEqual: month.sumsEqual ?? false,
+          summary: [],
+          mismatches: [],
+        }
+      : null,
   };
+}
+
+function categoryCount(point: PeriodSeriesPoint) {
+  return Object.values(categoryFigures(point).counts).reduce((sum, n) => sum + n, 0);
 }
 
 type DashboardPeriodRange = { from: string; to: string };
@@ -140,13 +142,40 @@ const CATEGORY_ORDER: MismatchCategory[] = [
   "month_boundary",
 ];
 
-const CATEGORY_COLORS: Record<MismatchCategory, string> = {
-  unconfirmed: "var(--chart-1)",
-  fraud: "var(--chart-4)",
-  duplicate: "var(--chart-5)",
-  overpay: "var(--chart-3)",
-  month_boundary: "var(--chart-2)",
-};
+function MetricCard({
+  label,
+  value,
+  detail,
+  tone = "muted",
+  wide = false,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "muted" | "ok" | "signal";
+  wide?: boolean;
+}) {
+  const detailColor =
+    tone === "ok"
+      ? "text-[var(--ok)]"
+      : tone === "signal"
+        ? "text-[var(--signal)]"
+        : "text-[var(--muted)]";
+
+  return (
+    <article className="app-card px-3.5 py-3">
+      <p className="text-[12px] font-medium text-[var(--muted)]">{label}</p>
+      <p
+        className={`mt-1.5 font-[family-name:var(--font-mono)] font-semibold tracking-tight text-[var(--ink)] tabular-nums ${
+          wide ? "text-[15px] leading-snug" : "text-[20px] leading-none"
+        }`}
+      >
+        {value}
+      </p>
+      <p className={`mt-1.5 truncate text-[11px] ${detailColor}`}>{detail}</p>
+    </article>
+  );
+}
 
 export function DashboardView({
   status,
@@ -157,7 +186,6 @@ export function DashboardView({
   onGoInventory,
   onGoAnalysis,
 }: DashboardViewProps) {
-  const totalFiles = fileCounts.ceir + fileCounts.payplus;
   const [range, setRange] = useState<DashboardPeriodRange>(() =>
     defaultDashboardRange(availablePeriods),
   );
@@ -183,14 +211,7 @@ export function DashboardView({
     [range.from, range.to],
   );
 
-  const periodsToLoad = useMemo(() => {
-    const stored = availablePeriods
-      .filter((period) => period >= range.from && period <= range.to)
-      .slice()
-      .sort();
-    if (stored.length > 0) return stored;
-    return monthsInRange(range.from, range.to);
-  }, [availablePeriods, range.from, range.to]);
+  const seriesKey = `${inventoryVersion}|${range.from}|${range.to}`;
 
   function handleRangeChange(next: AnalysisDateRange) {
     const keys = calendarRangeToPeriodKeys(next);
@@ -198,90 +219,53 @@ export function DashboardView({
   }
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setLoadingSeries(true);
-      try {
-        const [periodPoints, globalLatest] = await Promise.all([
-          Promise.all(
-            periodsToLoad.map(async (period) => {
-              const [summary, result] = await Promise.all([
-                fetchUploadSummary(period)
-                  .then((item) => ({
-                    ceirRows: item.sides.ceir.rowCount,
-                    payplusRows: item.sides.payplus.rowCount,
-                    ceirFiles: item.sides.ceir.batchCount,
-                    payplusFiles: item.sides.payplus.batchCount,
-                  }))
-                  .catch(() => null),
-                fetchLatestReconciliation(period)
-                  .then(mapApiResult)
-                  .catch(() => null),
-              ]);
-
-              return {
-                period,
-                result,
-                inventory: summary,
-              } satisfies PeriodSeriesPoint;
-            }),
-          ),
-          fetchLatestReconciliation()
-            .then(mapApiResult)
-            .catch(() => null),
-        ]);
-
-        // Prefer live session result, then API global latest.
-        const fallbackResult = analysisResult ?? globalLatest;
-        const byPeriod = new Map(
-          periodPoints.map((point) => [point.period, point] as const),
-        );
-
-        if (fallbackResult?.mismatches?.length) {
-          const keys = periodKeysFromLabel(fallbackResult.periodLabel);
-          // Put range/single analysis totals on the end month so the chart
-          // has category values without double-counting across months.
-          const target =
-            keys?.to ??
-            periodsToLoad[periodsToLoad.length - 1] ??
-            null;
-          if (target) {
-            const existing = byPeriod.get(target);
-            if (existing && !existing.result?.mismatches?.length) {
-              byPeriod.set(target, { ...existing, result: fallbackResult });
-            } else if (!existing) {
-              byPeriod.set(target, {
-                period: target,
-                result: fallbackResult,
-                inventory: null,
-              });
-            }
-          }
-        }
-
-        const points = periodsToLoad.map((period) => {
-          const existing = byPeriod.get(period);
-          return (
-            existing ?? {
-              period,
-              result: null,
-              inventory: null,
-            }
-          );
-        });
-
-        if (!cancelled) setSeries(points);
-      } finally {
-        if (!cancelled) setLoadingSeries(false);
-      }
+    const cached = dashboardSeriesCache.get(seriesKey);
+    if (cached) {
+      setSeries(cached);
+      setLoadingSeries(false);
+      return;
     }
 
-    void load();
+    const controller = new AbortController();
+    let cancelled = false;
+    setLoadingSeries(true);
+
+    fetchDashboardSeries(range.from, range.to, controller.signal)
+      .then((months) => {
+        const points = months.map(monthToPoint);
+        rememberDashboardSeries(seriesKey, points);
+        if (!cancelled) setSeries(points);
+      })
+      .catch((err: unknown) => {
+        if (cancelled || isAbortError(err)) return;
+        if (!cancelled) setSeries([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSeries(false);
+      });
+
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [periodsToLoad, inventoryVersion, analysisResult]);
+  }, [seriesKey, range.from, range.to]);
+
+  const shownSeries = useMemo(() => {
+    if (!analysisResult?.mismatches.length) return series;
+    const target = periodKeysFromLabel(analysisResult.periodLabel)?.to;
+    if (!target) return series;
+    return series.map((point) => {
+      if (point.period !== target || categoryCount(point) > 0) return point;
+      const categories: PeriodSeriesPoint["categories"] = {};
+      for (const row of analysisResult.mismatches) {
+        const current = categories[row.category] ?? { count: 0, amount: 0 };
+        current.count += 1;
+        current.amount += row.amountMmk ?? 0;
+        categories[row.category] = current;
+      }
+      return { ...point, categories };
+    });
+  }, [series, analysisResult]);
 
   const categoryTotals = useMemo(() => {
     const counts: Record<MismatchCategory, number> = {
@@ -299,21 +283,74 @@ export function DashboardView({
       month_boundary: 0,
     };
 
-    for (const point of series) {
-      for (const row of point.result?.mismatches ?? []) {
-        counts[row.category] += 1;
-        amounts[row.category] += row.amountMmk ?? 0;
+    for (const point of shownSeries) {
+      const figures = categoryFigures(point);
+      for (const key of CATEGORY_ORDER) {
+        counts[key] += figures.counts[key];
+        amounts[key] += figures.amounts[key];
       }
     }
 
     return CATEGORY_ORDER.map((key) => ({
       key,
-      label: categoryLabels[key],
       count: counts[key],
       amount: amounts[key],
-      color: CATEGORY_COLORS[key],
     }));
   }, [series]);
+
+  const overview = useMemo(() => {
+    let matched = 0;
+    let irdPaid = 0;
+    let ceirPaid = 0;
+    let adjustedIrd = 0;
+    let adjustedCeir = 0;
+    let periodsWithResult = 0;
+    let unequalPeriods = 0;
+    let ceirFiles = 0;
+    let payplusFiles = 0;
+
+    for (const point of shownSeries) {
+      if (point.inventory) {
+        ceirFiles += point.inventory.ceirFiles;
+        payplusFiles += point.inventory.payplusFiles;
+      }
+      if (!point.result) continue;
+      periodsWithResult += 1;
+      matched += point.result.matchedCount;
+      irdPaid += point.result.irdPaid;
+      ceirPaid += point.result.ceirPaid;
+      adjustedIrd += point.result.adjustedIrdSum;
+      adjustedCeir += point.result.adjustedCeirSum;
+      if (!point.result.sumsEqual) unequalPeriods += 1;
+    }
+
+    const totalDiffs = categoryTotals.reduce((sum, item) => sum + item.count, 0);
+    const totalAmount = categoryTotals.reduce(
+      (sum, item) => sum + item.amount,
+      0,
+    );
+    const decided = matched + totalDiffs;
+    const matchRate =
+      periodsWithResult > 0 && decided > 0
+        ? Math.round((matched / decided) * 100)
+        : null;
+
+    return {
+      matched,
+      irdPaid,
+      ceirPaid,
+      adjustedIrd,
+      adjustedCeir,
+      periodsWithResult,
+      ceirFiles,
+      payplusFiles,
+      totalDiffs,
+      totalAmount,
+      matchRate,
+      sumsEqual: periodsWithResult > 0 && unequalPeriods === 0,
+      gap: adjustedIrd - adjustedCeir,
+    };
+  }, [shownSeries, categoryTotals]);
 
   const statusLabel =
     status === "analyzed"
@@ -322,19 +359,49 @@ export function DashboardView({
         ? "Ready"
         : "No analysis yet";
 
-  const hasInventoryInSeries = totalFiles > 0;
+  const filesLabel = `${overview.ceirFiles.toLocaleString()} CEIR · ${overview.payplusFiles.toLocaleString()} PayPlus files`;
+  const rangeStatus =
+    overview.periodsWithResult > 0
+      ? overview.totalDiffs === 0
+        ? overview.sumsEqual
+          ? `${filesLabel}. No differences, and adjusted sums match.`
+          : `${filesLabel}. No difference rows, but adjusted sums do not match.`
+        : filesLabel
+      : overview.ceirFiles + overview.payplusFiles > 0
+        ? `${filesLabel}. Run Analysis to calculate differences.`
+        : fileCounts.ceir + fileCounts.payplus > 0
+          ? "No files in this range. Other months in Inventory have uploads."
+          : "No files stored yet. Upload in Inventory, then run Analysis.";
+
+  const analyzed = overview.periodsWithResult > 0;
+  const adjustedValue = !analyzed
+    ? "—"
+    : overview.sumsEqual
+      ? "Equal"
+      : `${overview.gap > 0 ? "+" : ""}${formatMmk(overview.gap)}`;
+  const adjustedDetail = !analyzed
+    ? "No analysis for this range"
+    : overview.sumsEqual
+      ? `${formatMmk(overview.adjustedIrd)} MMK on both sides`
+      : "HUB adjusted sum minus CEIR";
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <section className="app-card overflow-visible">
-        <div className="flex flex-col gap-3 border-b border-[var(--line-soft)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <div>
-            <h2 className="text-[16px] font-semibold text-[var(--ink)]">
-              Dashboard
-            </h2>
-            <p className="mt-0.5 text-[13px] text-[var(--muted)]">
-              {rangeLabel(range)} · Analysis: {statusLabel}
+        <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="text-[16px] font-semibold tracking-tight text-[var(--ink)]">
+                Dashboard
+              </h2>
+              <span className="rounded-full border border-[var(--line-soft)] bg-[var(--canvas)] px-2 py-0.5 text-[11px] text-[var(--muted)]">
+                {statusLabel}
+              </span>
+            </div>
+            <p className="mt-1 truncate text-[13px] text-[var(--muted)]">
+              {rangeLabel(range)}
             </p>
+            <p className="mt-0.5 text-[12px] text-[var(--muted)]">{rangeStatus}</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -347,10 +414,10 @@ export function DashboardView({
             </button>
             <button
               type="button"
-              className="app-btn-outline app-btn-sm"
+              className="app-btn-primary app-btn-sm"
               onClick={onGoAnalysis}
             >
-              Analysis
+              Open Analysis
             </button>
             <AnalysisDateRangePicker
               value={calendarValue}
@@ -358,58 +425,59 @@ export function DashboardView({
             />
           </div>
         </div>
-
-        <div className="grid grid-cols-2 divide-x divide-y divide-[var(--line-soft)] sm:grid-cols-3 xl:grid-cols-5 xl:divide-y-0">
-          {categoryTotals.map((item) => (
-            <div key={item.key} className="px-4 py-3 sm:px-5">
-              <div className="flex items-center gap-2">
-                <span
-                  className="h-2 w-2 shrink-0 rounded-[2px]"
-                  style={{ backgroundColor: item.color }}
-                />
-                <p className="truncate text-[12px] text-[var(--muted)]">
-                  {item.label}
-                </p>
-              </div>
-              <p className="mt-1 font-[family-name:var(--font-mono)] text-[15px] font-semibold text-[var(--ink)]">
-                {item.count.toLocaleString()}
-              </p>
-              <p className="mt-0.5 text-[12px] text-[var(--muted)]">
-                {item.amount > 0
-                  ? `${item.amount.toLocaleString()} MMK`
-                  : "—"}
-              </p>
-            </div>
-          ))}
-        </div>
       </section>
 
-      {hasInventoryInSeries ? (
-        <section className="app-card flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <div>
-            <p className="text-[13px] font-medium text-[var(--ink)]">
-              Inventory totals are live
-            </p>
-            <p className="mt-0.5 text-[12px] text-[var(--muted)]">
-              Difference category chart fills after Analysis is run for a date
-              range.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="app-btn-primary app-btn-sm shrink-0"
-            onClick={onGoAnalysis}
-          >
-            Open Analysis
-          </button>
-        </section>
-      ) : null}
+      <div
+        className={`grid grid-cols-2 gap-3 transition-opacity duration-200 xl:grid-cols-4 ${
+          loadingSeries ? "opacity-60" : "opacity-100"
+        }`}
+      >
+        <MetricCard
+          label="Differences"
+          value={analyzed ? overview.totalDiffs.toLocaleString() : "—"}
+          detail={
+            !analyzed
+              ? "No analysis for this range"
+              : overview.totalAmount > 0
+                ? `${formatMmk(overview.totalAmount)} MMK`
+                : "No amount on these rows"
+          }
+        />
+        <MetricCard
+          label="Matched"
+          value={analyzed ? overview.matched.toLocaleString() : "—"}
+          detail={
+            overview.matchRate == null
+              ? "No analysis for this range"
+              : `${overview.matchRate}% of matched + differences`
+          }
+        />
+        <MetricCard
+          label="Paid records"
+          wide
+          value={
+            analyzed
+              ? `${overview.irdPaid.toLocaleString()} / ${overview.ceirPaid.toLocaleString()}`
+              : "—"
+          }
+          detail="HUB / CEIR"
+        />
+        <MetricCard
+          label="Adjusted sum"
+          wide={!overview.sumsEqual && analyzed}
+          value={adjustedValue}
+          detail={adjustedDetail}
+          tone={!analyzed ? "muted" : overview.sumsEqual ? "ok" : "signal"}
+        />
+      </div>
 
-      {loadingSeries ? (
-        <p className="px-1 text-[12px] text-[var(--muted)]">Updating charts…</p>
-      ) : null}
-
-      <DashboardAnalytics series={series} mode="inventory" />
+      <div
+        className={`transition-opacity duration-200 ${
+          loadingSeries ? "opacity-60" : "opacity-100"
+        }`}
+      >
+        <DashboardAnalytics series={shownSeries} mode="inventory" followSeries />
+      </div>
     </div>
   );
 }

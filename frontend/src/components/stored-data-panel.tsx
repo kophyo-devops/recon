@@ -285,7 +285,7 @@ export function StoredDataPanel({
             ).map((block) => (
               <div
                 key={block.side}
-                className="rounded-[8px] border border-[var(--line-soft)] px-3 py-3"
+                className="rounded-xl border border-[var(--line-soft)] px-3 py-3"
               >
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-[13px] font-semibold text-[var(--ink)]">

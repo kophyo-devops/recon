@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
@@ -10,7 +10,7 @@ import {
 import { InventoryUploadGrid } from "@/components/inventory-upload-grid";
 import { useAppFeedback } from "@/components/providers/app-feedback";
 import type { ReconciliationState } from "@/hooks/use-reconciliation";
-import { ApiError, fetchUploadBatches, uploadReportFile } from "@/lib/api";
+import { ApiError, uploadReportFile } from "@/lib/api";
 import {
   extractPeriodsFromFile,
   formatPeriodLabel,
@@ -50,9 +50,9 @@ function InventoryBody({ state }: InventoryViewProps) {
   const uploadSideRef = useRef<ReportSide>("ceir");
   const [storedRefresh, setStoredRefresh] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
-  const [ceirCount, setCeirCount] = useState<number | null>(null);
-  const [payplusCount, setPayplusCount] = useState<number | null>(null);
-  const [countsLoading, setCountsLoading] = useState(false);
+  const countsLoading = apiOnline !== false && state.inventoryVersion === 0;
+  const ceirCount = apiOnline === false ? null : state.inventoryCounts.ceir;
+  const payplusCount = apiOnline === false ? null : state.inventoryCounts.payplus;
 
   const setSource = useCallback(
     (source: InventorySource | null) => {
@@ -73,32 +73,6 @@ function InventoryBody({ state }: InventoryViewProps) {
     },
     [pathname, router, searchParams],
   );
-
-  const loadCounts = useCallback(async () => {
-    if (apiOnline === false) {
-      setCeirCount(null);
-      setPayplusCount(null);
-      return;
-    }
-    setCountsLoading(true);
-    try {
-      const [ceir, payplus] = await Promise.all([
-        fetchUploadBatches({ side: "ceir", page: 1, pageSize: 1 }),
-        fetchUploadBatches({ side: "payplus", page: 1, pageSize: 1 }),
-      ]);
-      setCeirCount(ceir.total);
-      setPayplusCount(payplus.total);
-    } catch {
-      setCeirCount(null);
-      setPayplusCount(null);
-    } finally {
-      setCountsLoading(false);
-    }
-  }, [apiOnline]);
-
-  useEffect(() => {
-    if (!activeSource) void loadCounts();
-  }, [activeSource, loadCounts, storedRefresh]);
 
   function openUploadPicker(side: ReportSide) {
     uploadSideRef.current = side;
@@ -287,6 +261,7 @@ function InventoryBody({ state }: InventoryViewProps) {
 
           <InventoryUploadGrid
             apiOnline={apiOnline}
+            inventoryVersion={state.inventoryVersion}
             lockedSide={activeSource === "all" ? null : activeSource}
             refreshToken={storedRefresh}
             onUploadClick={

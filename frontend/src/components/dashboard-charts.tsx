@@ -47,10 +47,17 @@ export type InventoryPeriodStats = {
   payplusFiles: number;
 };
 
+export type CategoryFigures = Record<
+  MismatchCategory,
+  { count: number; amount: number }
+>;
+
 export type PeriodSeriesPoint = {
   period: string;
   result: ReconciliationResult | null;
   inventory: InventoryPeriodStats | null;
+  /** Pre-aggregated on the server. When set, mismatch rows are not required. */
+  categories?: Partial<CategoryFigures>;
 };
 
 export const description = "Difference categories over time";
@@ -176,6 +183,23 @@ function categoriesFromResult(
   return { counts, amounts };
 }
 
+export function categoryFigures(point: PeriodSeriesPoint): {
+  counts: Record<MismatchCategory, number>;
+  amounts: Record<MismatchCategory, number>;
+} {
+  if (point.categories) {
+    const counts = emptyCategoryMap();
+    const amounts = emptyCategoryMap();
+    for (const key of CATEGORY_ORDER) {
+      const item = point.categories[key];
+      counts[key] = item?.count ?? 0;
+      amounts[key] = item?.amount ?? 0;
+    }
+    return { counts, amounts };
+  }
+  return categoriesFromResult(point.result);
+}
+
 /** Always cover at least 12 months; missing months stay at 0. */
 function fillAtLeastOneYear(periodKeys: string[]): string[] {
   const keys = [...periodKeys].sort();
@@ -193,7 +217,7 @@ function buildChartRows(series: PeriodSeriesPoint[]): ChartRow[] {
     .sort((a, b) => a.period.localeCompare(b.period));
 
   const byPeriod = new Map(
-    sorted.map((point) => [point.period, categoriesFromResult(point.result)] as const),
+    sorted.map((point) => [point.period, categoryFigures(point)] as const),
   );
 
   const span = fillAtLeastOneYear([...byPeriod.keys()]);
@@ -317,7 +341,7 @@ function MonthlyValuesTable({ rows }: { rows: ChartRow[] }) {
           {selection.selectedCount} selected
         </p>
       ) : null}
-      <div className="overflow-x-auto rounded-lg border border-[var(--line-soft)]">
+      <div className="overflow-x-auto rounded-xl border border-[var(--line-soft)]">
         <table className="min-w-full border-collapse text-left text-[12px]">
           <thead className="bg-[#f8fafc] text-[11px] text-[var(--muted)]">
             <tr>
@@ -414,9 +438,12 @@ function MonthlyValuesTable({ rows }: { rows: ChartRow[] }) {
 
 export function ChartAreaInteractive({
   series,
+  followSeries = false,
 }: {
   series: PeriodSeriesPoint[];
   mode?: "auto" | "inventory" | "analysis";
+  /** Use the months already loaded by the dashboard range. */
+  followSeries?: boolean;
 }) {
   const [timeRange, setTimeRange] = React.useState("6m");
   const [selectedPeriod, setSelectedPeriod] = React.useState<string | null>(
@@ -432,15 +459,16 @@ export function ChartAreaInteractive({
   const allRows = React.useMemo(() => buildChartRows(series), [series]);
 
   const filteredData = React.useMemo(() => {
-    if (allRows.length === 0) return allRows;
-    if (timeRange === "all") return allRows;
+    if (followSeries || allRows.length === 0 || timeRange === "all") {
+      return allRows;
+    }
     const months = timeRange === "6m" ? 6 : timeRange === "3m" ? 3 : 12;
     return allRows.slice(-months);
-  }, [allRows, timeRange]);
+  }, [allRows, timeRange, followSeries]);
 
   const tableRows = React.useMemo(
-    () => allRows.slice(-6),
-    [allRows],
+    () => (followSeries ? allRows : allRows.slice(-6)),
+    [allRows, followSeries],
   );
 
   React.useEffect(() => {
@@ -458,16 +486,19 @@ export function ChartAreaInteractive({
   );
 
   return (
-    <Card className="border-[var(--line)] bg-white pt-0 shadow-sm">
-      <CardHeader className="flex items-center gap-2 space-y-0 border-b border-[var(--line-soft)] py-5 sm:flex-row">
+    <Card className="border-[var(--line)] bg-white pt-0 shadow-[0_1px_2px_rgba(26,43,74,0.04)]">
+      <CardHeader className="flex items-center gap-2 space-y-0 border-b border-[var(--line-soft)] py-4 sm:flex-row">
         <div className="grid flex-1 gap-1">
           <CardTitle className="text-[15px] text-[var(--ink)]">
             Difference categories over time
           </CardTitle>
           <CardDescription className="text-[var(--muted)]">
-            Category trends by month · click legend to show/hide
+            {followSeries
+              ? "Months in the selected range · click the legend to show or hide"
+              : "Category trends by month · click legend to show/hide"}
           </CardDescription>
         </div>
+        {followSeries ? null : (
         <Select value={timeRange} onValueChange={setTimeRange}>
           <SelectTrigger
             className="hidden w-[150px] rounded-lg sm:ml-auto sm:flex"
@@ -490,6 +521,7 @@ export function ChartAreaInteractive({
             </SelectItem>
           </SelectContent>
         </Select>
+        )}
       </CardHeader>
       <CardContent className="space-y-4 px-2 pt-4 sm:px-6 sm:pt-6">
         <ChartContainer
@@ -500,6 +532,7 @@ export function ChartAreaInteractive({
             data={filteredData}
             margin={{ left: 8, right: 8 }}
             onClick={(state) => {
+              if (followSeries) return;
               const row = state?.activePayload?.[0]?.payload as
                 | ChartRow
                 | undefined;
@@ -566,6 +599,7 @@ export function ChartAreaInteractive({
                 activeDot={{
                   r: 5,
                   onClick: (_event, dot) => {
+                    if (followSeries) return;
                     const row = (dot as { payload?: ChartRow })?.payload;
                     if (
                       !row ||
@@ -598,12 +632,14 @@ export function ChartAreaInteractive({
           <>
             <div>
               <p className="mb-2 text-[12px] font-medium text-[var(--ink)]">
-                Monthly category values · last 6 months
+                {followSeries
+                  ? "Months in the selected range"
+                  : "Monthly category values · last 6 months"}
               </p>
               <MonthlyValuesTable rows={tableRows} />
             </div>
 
-            {selectedRow ? (
+            {!followSeries && selectedRow ? (
               <div className="rounded-lg border border-[var(--line-soft)] bg-[#f8fafc] px-4 py-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <p className="text-[12px] font-medium text-[var(--ink)]">
@@ -657,14 +693,22 @@ export function ChartAreaInteractive({
 export function DashboardAnalytics({
   series,
   mode = "auto",
+  followSeries = false,
 }: {
   series: PeriodSeriesPoint[];
   mode?: "auto" | "inventory" | "analysis";
+  followSeries?: boolean;
 }) {
   const points: PeriodSeriesPoint[] =
     series.length > 0
       ? series
       : [{ period: "—", result: null, inventory: null }];
 
-  return <ChartAreaInteractive series={points} mode={mode} />;
+  return (
+    <ChartAreaInteractive
+      series={points}
+      mode={mode}
+      followSeries={followSeries}
+    />
+  );
 }

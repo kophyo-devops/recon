@@ -39,7 +39,7 @@
   --chart-3: #8b5cf6;
   --chart-4: #f5c518;
   --chart-5: #e879a9;
-  --radius: 0.375rem;
+  --radius: 0.625rem;
 }
 
 @theme inline {
@@ -68,18 +68,36 @@
   --color-chart-5: var(--chart-5);
   --font-sans: var(--font-body);
   --font-mono: var(--font-mono);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
 }
 
 body {
   background: var(--canvas);
   color: var(--ink);
   font-family: var(--font-body), "Segoe UI", sans-serif;
+  /* Real weights only — synthetic bold blurs Public Sans and Plex Mono. */
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}
+
+.font-mono,
+[class*="--font-mono"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 .app-card,
 .panel {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: calc(var(--radius) + 4px);
   background: var(--paper);
   box-shadow: 0 1px 2px rgba(26, 43, 74, 0.04);
 }
@@ -186,6 +204,11 @@ select.app-field {
   transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
 }
 
+.app-btn-primary,
+.app-btn-outline {
+  border-radius: calc(var(--radius) - 2px);
+}
+
 .login-submit,
 .app-btn-primary {
   border: 0;
@@ -232,7 +255,7 @@ select.app-field {
   height: 32px;
   align-items: center;
   border: 1.5px solid var(--field-border);
-  border-radius: 6px;
+  border-radius: calc(var(--radius) - 2px);
   background: #fff;
   padding: 0 12px;
   font-size: 12px;
@@ -363,7 +386,7 @@ button.inv-aws-card {
   display: flex;
   overflow: visible !important;
   border: 0;
-  border-radius: 16px;
+  border-radius: calc(var(--radius) + 4px);
   background: transparent;
   box-shadow: none;
   cursor: pointer;
@@ -413,7 +436,7 @@ button.inv-aws-card .inv-aws-body {
   flex-direction: column;
   overflow: hidden;
   border: 1px solid #d5dbdb;
-  border-radius: 16px;
+  border-radius: calc(var(--radius) + 4px);
   background: #ffffff;
   box-shadow: 0 1px 1px 0 rgba(0, 0, 0, 0.05);
   transform: translate3d(0, 0, 0);
@@ -426,6 +449,107 @@ button.inv-aws-card .inv-aws-open {
 
 button.inv-aws-card:hover .inv-aws-open {
   transform: translate3d(6px, 0, 0);
+}
+
+.portal-nav-pill-ready {
+  transition:
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    width 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.portal-stage {
+  view-transition-name: portal-main;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+::view-transition-group(portal-main) {
+  animation-duration: 280ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html[data-portal-dir="forward"]::view-transition-old(portal-main) {
+  animation: 160ms cubic-bezier(0.4, 0, 1, 1) both portal-out-forward;
+}
+
+html[data-portal-dir="forward"]::view-transition-new(portal-main) {
+  animation: 240ms cubic-bezier(0.16, 1, 0.3, 1) 40ms both portal-in-forward;
+}
+
+html[data-portal-dir="back"]::view-transition-old(portal-main) {
+  animation: 160ms cubic-bezier(0.4, 0, 1, 1) both portal-out-back;
+}
+
+html[data-portal-dir="back"]::view-transition-new(portal-main) {
+  animation: 240ms cubic-bezier(0.16, 1, 0.3, 1) 40ms both portal-in-back;
+}
+
+@keyframes portal-in-forward {
+  from {
+    opacity: 0;
+    transform: translateX(22px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes portal-out-forward {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+}
+
+@keyframes portal-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-22px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes portal-out-back {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+.portal-stage-enter[data-dir="forward"] {
+  animation: 280ms cubic-bezier(0.16, 1, 0.3, 1) both portal-in-forward;
+}
+
+.portal-stage-enter[data-dir="back"] {
+  animation: 280ms cubic-bezier(0.16, 1, 0.3, 1) both portal-in-back;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-nav-pill-ready,
+  .portal-stage-enter {
+    animation: none;
+    transition: none;
+  }
+
+  html[data-portal-dir]::view-transition-old(portal-main),
+  html[data-portal-dir]::view-transition-new(portal-main) {
+    animation: none;
+  }
 }
 
 .sr-only {

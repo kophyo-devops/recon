@@ -17,6 +17,10 @@ const AUTH_SKIP_REFRESH = new Set([
   "/health",
 ]);
 
+export function isAbortError(err: unknown) {
+  return err instanceof Error && err.name === "AbortError";
+}
+
 export class ApiError extends Error {
   status: number;
 
@@ -187,6 +191,39 @@ export async function fetchLatestReconciliation(period?: string) {
   return apiFetch<ApiReconciliationResult>(`/api/reconciliation/latest${query}`);
 }
 
+export type DashboardCategoryTotal = {
+  count: number;
+  amount: number;
+};
+
+export type DashboardMonth = {
+  period: string;
+  ceirFiles: number;
+  payplusFiles: number;
+  ceirRows: number;
+  payplusRows: number;
+  matchedCount: number | null;
+  mismatchCount: number | null;
+  irdPaid: number | null;
+  ceirPaid: number | null;
+  adjustedIrdSum: number | null;
+  adjustedCeirSum: number | null;
+  sumsEqual: boolean | null;
+  categories: Partial<Record<string, DashboardCategoryTotal>>;
+};
+
+export async function fetchDashboardSeries(
+  from: string,
+  to: string,
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams({ from, to });
+  return apiFetch<DashboardMonth[]>(
+    `/api/dashboard/series?${query.toString()}`,
+    { signal },
+  );
+}
+
 export async function uploadReportFile(
   side: ReportSide,
   period: string,
@@ -293,7 +330,8 @@ export async function fetchUploadSummary(period: string) {
   );
 }
 
-export async function fetchUploadBatches(params: {
+export async function fetchUploadBatches(
+  params: {
   period?: string;
   uploadedFrom?: string;
   uploadedTo?: string;
@@ -303,7 +341,9 @@ export async function fetchUploadBatches(params: {
   q?: string;
   sort?: "uploadedAt" | "period";
   sortDir?: "asc" | "desc";
-}) {
+},
+  signal?: AbortSignal,
+) {
   const query = new URLSearchParams({
     page: String(params.page ?? 1),
     pageSize: String(params.pageSize ?? 10),
@@ -317,6 +357,7 @@ export async function fetchUploadBatches(params: {
   if (params.q?.trim()) query.set("q", params.q.trim());
   return apiFetch<UploadBatchesPage>(
     `/api/uploads/batches?${query.toString()}`,
+    { signal },
   );
 }
 
