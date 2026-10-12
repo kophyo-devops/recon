@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.gitignore
+.env*
+!.env.example
+README.md
+AGENTS.md
+.cursor
+*.md
+tsconfig.tsbuildinfo
+coverage
+out

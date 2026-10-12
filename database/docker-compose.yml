@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ceir-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ceir}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ceir_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-ceir_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ceir_pgdata:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ceir} -d ${POSTGRES_DB:-ceir_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ceir_pgdata:

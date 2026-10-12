@@ -1,0 +1,36 @@
+# Secrets / local env
+.env
+.env.local
+**/.env
+!**/.env.example
+!.env.example
+
+# Python
+backend/.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/tsconfig.tsbuildinfo
+frontend/next-env.d.ts
+
+# Uploads / runtime data
+backend/data/uploads/
+*.log
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.cursor/
+**/.cursor/
+.vscode/
+*.swp
+
+# Dummy / local sample dumps (keep out of image repo unless needed)
+dummydataforceirpaymenthubreconciliationanddashboard/

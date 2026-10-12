@@ -1,0 +1,114 @@
+# CEIR full stack — tuned for a typical local machine.
+# Raise deploy.resources when you move to production.
+#
+# Usage:
+#   docker compose up -d --build
+#   docker compose down
+#   docker compose down -v   # also wipe DB volume
+
+name: ceir
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ceir-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ceir}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ceir_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-ceir_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ceir_pgdata:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-ceir} -d ${POSTGRES_DB:-ceir_db}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ceir-backend:local
+    container_name: ceir-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://ceir_app:ceir_app_secret@postgres:5432/ceir_db}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      TRUSTED_HOSTS: ${TRUSTED_HOSTS:-localhost,127.0.0.1,backend}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      ENABLE_DOCS: ${ENABLE_DOCS:-true}
+      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-120}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+      DB_STATEMENT_TIMEOUT_MS: ${DB_STATEMENT_TIMEOUT_MS:-10000}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+      JWT_SECRET: ${JWT_SECRET:-ceir-dev-jwt-secret-change-in-production-32b}
+      AUTH_USERNAME: ${AUTH_USERNAME:-admin}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-admin123}
+      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-15}
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-7}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      UPLOAD_STORAGE_DIR: /app/data/uploads
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ceir_uploads:/app/data/uploads
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        BACKEND_ORIGIN: ${BACKEND_ORIGIN:-http://backend:8000}
+    image: ceir-frontend:local
+    container_name: ceir-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      BACKEND_ORIGIN: ${BACKEND_ORIGIN:-http://backend:8000}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1024M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+volumes:
+  ceir_pgdata:
+  ceir_uploads:
